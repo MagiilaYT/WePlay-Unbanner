@@ -11,12 +11,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ─── Config ───
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const CACHE_DIR  = path.join(__dirname, 'cache');
-const SIGNED_DIR = path.join(__dirname, 'signed');
-const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+const BASE_DIR     = __dirname;
+const UPLOAD_DIR   = path.join(BASE_DIR, 'uploads');
+const CACHE_DIR    = path.join(BASE_DIR, 'cache');
+const SIGNED_DIR   = path.join(BASE_DIR, 'signed');
+const INDEX_FILE   = path.join(BASE_DIR, 'index.php');
+const PUBLIC_URL   = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 
-// REPLACE with your own direct IPA download link
+// REPLACE with your own direct IPA link
 const APP_SOURCES = {
   weplay: 'https://1007.filemail.com/api/file/get?filekey=EeXa8eOmh3xZDBJcAQZnxsA07c3xTqPK9IwI1j-rmIQtun9tsvuHRehXy95kOkEyTqrcfEp1wCWxP-VL0dF1oPP3gCSEe0Fw-w'
 };
@@ -26,7 +28,7 @@ fs.ensureDirSync(UPLOAD_DIR);
 fs.ensureDirSync(CACHE_DIR);
 fs.ensureDirSync(SIGNED_DIR);
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve signed output files
 app.use('/signed', express.static(SIGNED_DIR));
 
 const upload = multer({
@@ -110,7 +112,14 @@ function generatePlist(title, ipaUrl, bundleId = 'com.wejoy.weplay.us') {
 </plist>`;
 }
 
-// ─── Main Route ───
+// ─── Routes ───
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', index_exists: fs.existsSync(INDEX_FILE) });
+});
+
+// Sign endpoint
 app.post('/sign', upload.single('certzip'), async (req, res) => {
   const workDir = path.join(UPLOAD_DIR, `${Date.now()}`);
   try {
@@ -151,11 +160,21 @@ app.post('/sign', upload.single('certzip'), async (req, res) => {
   }
 });
 
-// ─── FIX: Serve index.php at root ───
+// ─── ROOT: Serve index.php from SAME folder ───
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.php'));
+  if (fs.existsSync(INDEX_FILE)) {
+    return res.sendFile(INDEX_FILE);
+  }
+  res.status(404).send('index.php not found in server folder. Please place it next to node.js');
+});
+
+// Catch-all
+app.use((req, res) => {
+  res.status(404).send(`Cannot GET ${req.path} — <a href="/">Go home</a>`);
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Web Sign IPA running at ${PUBLIC_URL}`);
+  console.log(`🚀 Server running at ${PUBLIC_URL}`);
+  console.log(`📁 Looking for index.php at: ${INDEX_FILE}`);
+  console.log(`🔧 Health check: ${PUBLIC_URL}/health`);
 });
