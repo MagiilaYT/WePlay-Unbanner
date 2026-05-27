@@ -16,7 +16,7 @@ const CACHE_DIR  = path.join(__dirname, 'cache');
 const SIGNED_DIR = path.join(__dirname, 'signed');
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 
-// WePlay IPA source — Filemail direct download link
+// REPLACE with your own direct IPA download link
 const APP_SOURCES = {
   weplay: 'https://1007.filemail.com/api/file/get?filekey=EeXa8eOmh3xZDBJcAQZnxsA07c3xTqPK9IwI1j-rmIQtun9tsvuHRehXy95kOkEyTqrcfEp1wCWxP-VL0dF1oPP3gCSEe0Fw-w'
 };
@@ -31,7 +31,7 @@ app.use('/signed', express.static(SIGNED_DIR));
 
 const upload = multer({
   dest: UPLOAD_DIR,
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max (IPAs are big)
+  limits: { fileSize: 500 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     path.extname(file.originalname).toLowerCase() === '.zip'
       ? cb(null, true)
@@ -53,11 +53,14 @@ async function extractCerts(zipPath, extractTo) {
 
 async function getAppIPA(appName) {
   const cached = path.join(CACHE_DIR, `${appName}.ipa`);
-  if (await fs.pathExists(cached)) return cached;
+  if (await fs.pathExists(cached)) {
+    console.log(`[Cache] Using cached ${appName}.ipa`);
+    return cached;
+  }
   const url = APP_SOURCES[appName];
   if (!url) throw new Error('Unknown app');
   
-  console.log(`[Download] Fetching ${appName} from Filemail...`);
+  console.log(`[Download] Fetching ${appName}...`);
   await execAsync(
     `curl -sL -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" -o "${cached}" "${url}"`,
     { timeout: 600000 }
@@ -73,8 +76,10 @@ async function getAppIPA(appName) {
 
 async function signIPA(input, output, p12, mp, pass) {
   const cmd = `zsign -k "${p12}" -p "${pass}" -m "${mp}" -o "${output}" -z 9 "${input}"`;
+  console.log(`[Sign] Running zsign...`);
   const { stdout, stderr } = await execAsync(cmd, { timeout: 120000 });
   if (stderr && stderr.toLowerCase().includes('error')) throw new Error(stderr);
+  console.log(`[Sign] Done`);
   return output;
 }
 
@@ -141,10 +146,16 @@ app.post('/sign', upload.single('certzip'), async (req, res) => {
   } catch (err) {
     await fs.remove(workDir).catch(() => {});
     if (req.file) await fs.remove(req.file.path).catch(() => {});
+    console.error('[Error]', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+// ─── FIX: Serve index.php at root ───
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.php'));
+});
+
 app.listen(PORT, () => {
-  console.log(`Server running at ${PUBLIC_URL}`);
+  console.log(`🚀 Web Sign IPA running at ${PUBLIC_URL}`);
 });
